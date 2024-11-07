@@ -2,12 +2,11 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import jwt
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, Body
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
 from dao import UserDao, RoleDao
 from entity.SysUser import SysUser
-
 
 # 创建FastAPI应用
 app = FastAPI()
@@ -15,7 +14,7 @@ app = FastAPI()
 # 定义密钥和算法
 SECRET_KEY = "CMCCMY"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30
+ACCESS_TOKEN_EXPIRE_MINUTES = 24*60
 
 # OAuth2PasswordBearer会创建一个依赖项来验证令牌
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
@@ -81,7 +80,8 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
     if UserDao.login(user)[0]:
         sys_user = UserDao.getUserByPassword(user)
         # 转为字典
-        user_dict = {"id": sys_user.id, "username": sys_user.username, "password": sys_user.password, "telephone": sys_user.telephone}
+        user_dict = {"id": sys_user.id, "username": sys_user.username, "password": sys_user.password,
+                     "telephone": sys_user.telephone}
         return user_dict
     else:
         raise credentials_exception
@@ -92,18 +92,45 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
 async def read_users_me(current_user: SysUser = Depends(get_current_user)):
     return current_user
 
+
+@app.post("/users/change", response_model=dict)
+async def change(username: str = Body(required=True), password: str = Body(required=True),
+                 telephone: str = Body(required=True), current_user: SysUser = Depends(get_current_user)):
+    if current_user["username"] != username:
+        raise HTTPException(status_code=403, detail="username not match")
+    sys_user = SysUser(id=current_user["id"], username=username, password=password, telephone=telephone)
+    res = UserDao.user_change(sys_user)
+    if res[0]:
+        return {"detail": res[1]}
+    else:
+        raise HTTPException(status_code=403, detail=res[1])
+
+
+@app.post("/users/change/password", response_model=dict)
+async def change_password(username: str = Body(required=True), password: str = Body(required=True),
+                 telephone: str = Body(required=True), current_user: SysUser = Depends(get_current_user)):
+    if current_user["username"] != username:
+        raise HTTPException(status_code=403, detail="username not match")
+    sys_user = SysUser(id=current_user["id"], username=username, password=password, telephone=telephone)
+    res = UserDao.change_password(sys_user, password)
+    if res[0]:
+        return {"detail": res[1]}
+    else:
+        raise HTTPException(status_code=403, detail=res[1])
 @app.get("/users/me/role", response_model=dict)
 async def read_users_role(current_user: SysUser = Depends(get_current_user)):
     role = RoleDao.get_role_by_user(current_user["id"])[0]
     if role is None:
-        raise HTTPException(status_code=200, detail="Role not found")
+        raise HTTPException(status_code=403, detail="Role not found")
     else:
         role_dict = {"id": role.id, "name": role.name}
         return role_dict
 
+
 @app.get("/index")
 async def index(current_user: SysUser = Depends(get_current_user)):
     return "hello world"
+
 
 if __name__ == "__main__":
     import uvicorn

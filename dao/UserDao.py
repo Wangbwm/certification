@@ -86,7 +86,7 @@ def change_password(user, new_password):
             existing_user.password = hashed_password
             session.flush()
             session.commit()
-            return True, f"用户 {existing_user.user_name} 密码已修改", True
+            return True, f"用户 {existing_user.username} 密码已修改", True
         else:
             return False, f"用户不存在", True
     except Exception as e:
@@ -103,12 +103,10 @@ def user_change(user):
         # 检查用户是否已存在
         existing_user = session.query(SysUser).filter_by(username=user.username).first()
         if existing_user:
-            existing_user.email = user.email
-            existing_user.tel = user.tel
-            existing_user.address = user.address
+            existing_user.telephone = user.telephone
             session.flush()
             session.commit()
-            return True, f"用户 {existing_user.user_name} 信息已修改", True
+            return True, f"用户 {existing_user.username} 信息已修改", True
         else:
             return False, f"用户不存在", True
     except Exception as e:
