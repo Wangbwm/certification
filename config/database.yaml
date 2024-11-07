@@ -1,0 +1,6 @@
+mysql:
+  host: 192.168.198.100
+  user: root
+  password: '123456'
+  port: 3306
+  database: certification
