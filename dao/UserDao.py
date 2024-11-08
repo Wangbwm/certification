@@ -7,7 +7,6 @@ from entity.SysUser import SysUser
 from Utils.hash import *
 import yaml
 
-
 # 读取YAML配置文件
 with open('config/database.yaml', 'r') as file:
     db_config = yaml.safe_load(file)
@@ -31,7 +30,7 @@ def create_user(new_user):
     session = get_session()
     try:
         # 检查用户名是否已存在
-        existing_user = session.query(SysUser).filter_by(username=new_user.username).first()
+        existing_user = session.query(SysUser).filter_by(username=new_user.username, telephone=new_user.telephone).first()
         if existing_user:
             return False, f"用户已存在", True
             # 如果不存在，则添加新用户
@@ -39,11 +38,11 @@ def create_user(new_user):
         session.add(new_user)
         session.flush()
         user_id = new_user.id
-        new_user_role = SysUserRole(user_id=user_id, role_id=2)
+        new_user_role = SysUserRole(user_id=user_id, role_id=3)
         session.add(new_user_role)
         session.flush()
         session.commit()
-        return True, f"用户 {new_user.user_name} 成功创建", True
+        return True, f"用户 {new_user.username} 成功创建", True
     except Exception as e:
         session.rollback()
         return False, f"错误: {e}", False
@@ -56,19 +55,19 @@ def login(user):
     session = get_session()
     try:
         # 检查用户是否已存在
-        existing_user = session.query(SysUser).filter_by(username=user.username).first()
+        existing_user = session.query(SysUser).filter_by(username=user.username, telephone=user.telephone).first()
         if existing_user:
             # 对比数据库中的密码
             hash_pwd = existing_user.password
             if verify_password(user.password, hash_pwd.encode('utf-8')):
-                return True, f"登录成功", True
+                return True, f"登录成功"
             else:
-                return False, f"密码错误", True
+                return False, f"密码错误"
         else:
-            return False, f"用户不存在", True
+            return False, f"用户不存在"
     except Exception as e:
         session.rollback()
-        return False, f"错误: {e}", False
+        return False, f"错误: {e}"
     finally:
         session.close()
 
@@ -78,7 +77,7 @@ def change_password(user, new_password):
     session = get_session()
     try:
         # 检查用户是否已存在
-        existing_user = session.query(SysUser).filter_by(username=user.username).first()
+        existing_user = session.query(SysUser).filter_by(username=user.username, telephone=user.telephone).first()
         if existing_user:
             # 使用新密码生成哈希值
             hashed_password = hash_password(new_password)
@@ -97,13 +96,13 @@ def change_password(user, new_password):
 
 
 # 修改用户信息
-def user_change(user):
+def user_change(user, new_telephone):
     session = get_session()
     try:
         # 检查用户是否已存在
-        existing_user = session.query(SysUser).filter_by(username=user.username).first()
+        existing_user = session.query(SysUser).filter_by(username=user.username, telephone=user.telephone).first()
         if existing_user:
-            existing_user.telephone = user.telephone
+            existing_user.telephone = new_telephone
             session.flush()
             session.commit()
             return True, f"用户 {existing_user.username} 信息已修改", True
@@ -116,48 +115,12 @@ def user_change(user):
         session.close()
 
 
-# 修改用户权限
-def role_change(user, tag_user_id, role_id):
-    flag, mes, out = login(user)
-    if flag:
-        try:
-            session = get_session()
-            existing_user = session.query(SysUser).filter_by(username=user.username).first()
-            user_id = existing_user.id
-            # 鉴权
-            role = session.query(SysUserRole).filter_by(user_id=user_id).first()
-            if tag_user_id == user_id:
-                return False, f"无法操作本人权限", True
-            else:
-                if role.role_id == 1:
-                    existing_user_target = session.query(SysUser).filter_by(id=tag_user_id).first()
-                    if existing_user_target:
-                        target_user_id = existing_user_target.id
-                        target_role = session.query(SysUserRole).filter_by(user_id=target_user_id).first()
-                        target_role.role_id = role_id
-                        session.flush()
-                        session.commit()
-                        return True, f"用户身份已修改", True
-                    else:
-                        return False, f"目标用户不存在", True
-                else:
-                    return False, f"用户权限不足", True
-
-        except Exception as e:
-            session.rollback()
-            return False, f"错误: {e}", False
-        finally:
-            session.close()
-    else:
-        return False, f"系统内部错误", False
-
-
 # 分页查询用户
 def user_list(user, page):
     total_pages = 0
     user_list = []
     page_size = 5
-    flag, mes, out = login(user)
+    flag, mes = login(user)
     if flag:
         try:
             session = get_session()
@@ -196,42 +159,38 @@ def user_list(user, page):
 
 # 删除用户
 def user_delete(user, target_id):
-    flag, mes, out = login(user)
-    if flag:
-        try:
-            session = get_session()
-            existing_user = session.query(SysUser).filter_by(username=user.username).first()
-            if existing_user:
-                # 鉴权
-                user_id = existing_user.id
-                role = session.query(SysUserRole).filter_by(user_id=user_id).first()
-                if role.role_id == 1:
-                    if user_id == target_id:
-                        return False, f"不能删除自己", True
-                    else:
-                        target_user = session.query(SysUser).filter_by(id=target_id).first()
-                        if target_user:
-                            target_role = session.query(SysUserRole).filter_by(user_id=target_id).first()
-                            session.flush()
-                            session.delete(target_role)
-                            session.flush()
-                            session.delete(target_user)
-                            session.commit()
-                            return True, f"成功", False
-                        else:
-                            return False, f"用户不存在", True
+    try:
+        session = get_session()
+        existing_user = session.query(SysUser).filter_by(username=user.username).first()
+        if existing_user:
+            # 鉴权
+            user_id = existing_user.id
+            role = session.query(SysUserRole).filter_by(user_id=user_id).first()
+            if role.role_id == 1:
+                if user_id == target_id:
+                    return False, f"不能删除自己", True
                 else:
-                    return False, f"用户权限不足", True
+                    target_user = session.query(SysUser).filter_by(id=target_id).first()
+                    if target_user:
+                        target_role = session.query(SysUserRole).filter_by(user_id=target_id).first()
+                        session.flush()
+                        session.delete(target_role)
+                        session.flush()
+                        session.delete(target_user)
+                        session.commit()
+                        return True, f"成功", False
+                    else:
+                        return False, f"用户不存在", True
             else:
-                return False, f"用户不存在", True
-        except Exception as e:
-            session.rollback()
-            return False, f"错误: {e}", False
-        finally:
-            session.close()
+                return False, f"用户权限不足", True
+        else:
+            return False, f"用户不存在", True
+    except Exception as e:
+        session.rollback()
+        return False, f"错误: {e}", False
+    finally:
+        session.close()
 
-    else:
-        return False, f"系统内部错误", False
 
 def getUserByPassword(user):
     session = get_session()
@@ -241,6 +200,23 @@ def getUserByPassword(user):
         if existing_user:
             sys_user = existing_user
             return sys_user
+        else:
+            return None
+    except Exception as e:
+        session.rollback()
+        print(e)
+        return None
+    finally:
+        session.close()
+
+
+def getUserIdByName(username, telephone):
+    session = get_session()
+    try:
+        # 检查用户是否已存在
+        existing_user = session.query(SysUser).filter_by(username=username, telephone=telephone).first()
+        if existing_user:
+            return existing_user.id
         else:
             return None
     except Exception as e:

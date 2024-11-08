@@ -2,10 +2,11 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 import jwt
-from fastapi import FastAPI, Depends, HTTPException, status, Body
+from fastapi import FastAPI, Depends, HTTPException, status, Body, Form
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 
-from dao import UserDao, RoleDao
+from dao import UserDao, RoleDao, ManagerDao
+from entity.SysManager import SysManager
 from entity.SysUser import SysUser
 
 # 创建FastAPI应用
@@ -14,15 +15,24 @@ app = FastAPI()
 # 定义密钥和算法
 SECRET_KEY = "CMCCMY"
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 24*60
+ACCESS_TOKEN_EXPIRE_MINUTES = 24 * 60
+# 初始密码
+INIT_PASSWORD = "password"
 
 # OAuth2PasswordBearer会创建一个依赖项来验证令牌
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="token")
 
 
+# 扩展 OAuth2PasswordRequestForm，使其支持 telephone 字段
+class ExtendedOAuth2PasswordRequestForm(OAuth2PasswordRequestForm):
+    def __init__(self, username: str = Form(...), password: str = Form(...), telephone: str = Form(...)):
+        super().__init__(username=username, password=password)
+        self.telephone = telephone
+
+
 # 验证用户是否有效
-def authenticate_user(username: str, password: str):
-    user = SysUser(username=username, password=password)
+def authenticate_user(username: str, password: str, telephone: str):
+    user = SysUser(username=username, password=password, telephone=telephone)
     if UserDao.login(user)[0]:
         return user
     else:
@@ -43,19 +53,20 @@ def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
 
 # 登录并获取Token的路由
 @app.post("/token", response_model=dict)
-async def login_for_access_token(form_data: OAuth2PasswordRequestForm = Depends()):
-    user = authenticate_user(form_data.username, form_data.password)
+async def login_for_access_token(form_data: ExtendedOAuth2PasswordRequestForm = Depends()):
+    user = authenticate_user(form_data.username, form_data.password, form_data.telephone)
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Incorrect username or password",
+            detail="Incorrect username/password/telephone",
             headers={"WWW-Authenticate": "Bearer"},
         )
     access_token_expires = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     access_token = create_access_token(
         data={
             "username": user.username,
-            "password": user.password
+            "password": user.password,
+            "telephone": user.telephone
         }, expires_delta=access_token_expires
     )
     return {"access_token": access_token, "token_type": "bearer"}
@@ -72,59 +83,133 @@ async def get_current_user(token: str = Depends(oauth2_scheme)):
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("username")
         password: str = payload.get("password")
-        if username is None or password is None:
+        telephone: str = payload.get("telephone")
+        if username is None or password is None or telephone is None:
             raise credentials_exception
     except jwt.PyJWTError:
         raise credentials_exception
-    user = SysUser(username=username, password=password)
+    user = SysUser(username=username, password=password, telephone=telephone)
     if UserDao.login(user)[0]:
         sys_user = UserDao.getUserByPassword(user)
-        # 转为字典
-        user_dict = {"id": sys_user.id, "username": sys_user.username, "password": sys_user.password,
-                     "telephone": sys_user.telephone}
-        return user_dict
+        return sys_user
     else:
         raise credentials_exception
 
 
 # 受保护的路由
-@app.get("/users/me", response_model=dict)
+@app.get("/users/me")
 async def read_users_me(current_user: SysUser = Depends(get_current_user)):
     return current_user
 
 
+# 修改用户信息
 @app.post("/users/change", response_model=dict)
 async def change(username: str = Body(required=True), password: str = Body(required=True),
-                 telephone: str = Body(required=True), current_user: SysUser = Depends(get_current_user)):
-    if current_user["username"] != username:
+                 telephone: str = Body(required=True), new_telephone: str = Body(required=True),
+                 current_user: SysUser = Depends(get_current_user)):
+    if current_user.username != username:
         raise HTTPException(status_code=403, detail="username not match")
-    sys_user = SysUser(id=current_user["id"], username=username, password=password, telephone=telephone)
-    res = UserDao.user_change(sys_user)
+    sys_user = SysUser(id=current_user.id, username=username, password=password, telephone=telephone)
+    res = UserDao.user_change(sys_user, new_telephone)
     if res[0]:
         return {"detail": res[1]}
     else:
         raise HTTPException(status_code=403, detail=res[1])
 
 
+# 修改密码
 @app.post("/users/change/password", response_model=dict)
 async def change_password(username: str = Body(required=True), password: str = Body(required=True),
-                 telephone: str = Body(required=True), current_user: SysUser = Depends(get_current_user)):
-    if current_user["username"] != username:
+                          telephone: str = Body(required=True), current_user: SysUser = Depends(get_current_user)):
+    if current_user.username != username:
         raise HTTPException(status_code=403, detail="username not match")
-    sys_user = SysUser(id=current_user["id"], username=username, password=password, telephone=telephone)
+    sys_user = SysUser(id=current_user.id, username=username, password=password, telephone=telephone)
     res = UserDao.change_password(sys_user, password)
     if res[0]:
         return {"detail": res[1]}
     else:
         raise HTTPException(status_code=403, detail=res[1])
+
+
+# 管理员重置用户密码
+@app.post("/users/reset/password", response_model=dict)
+async def reset_password(username: str = Body(required=True),
+                         telephone: str = Body(required=True),
+                         current_user: SysUser = Depends(get_current_user)):
+    role_id = RoleDao.get_role_by_user(current_user.id)
+    if role_id[0] != 1:
+        raise HTTPException(status_code=403, detail="No permission")
+    else:
+        target_user = SysUser(username=username, telephone=telephone)
+        res = UserDao.change_password(target_user, INIT_PASSWORD)
+        if res[0]:
+            return {"detail": res[1]}
+        else:
+            raise HTTPException(status_code=403, detail=res[1])
+
+
+# 新建用户
+@app.post("/users/create", response_model=dict)
+async def create_user(username: str = Body(required=True), password: str = Body(required=True),
+                      telephone: str = Body(required=True)):
+    sys_user = SysUser(username=username, password=password, telephone=telephone)
+    res = UserDao.create_user(sys_user)
+    if res[0]:
+        return {"detail": res[1]}
+    else:
+        raise HTTPException(status_code=403, detail=res[1])
+
+
+# 用户删除
+@app.delete("/users/delete", response_model=dict)
+async def delete_user(username: str = Body(required=True),
+                      telephone: str = Body(required=True),
+                      current_user: SysUser = Depends(get_current_user)):
+    target_id = UserDao.getUserIdByName(username, telephone)
+    if target_id is None:
+        raise HTTPException(status_code=403, detail="User not found")
+    res = UserDao.user_delete(current_user, target_id)
+    if res[0]:
+        return {"detail": res[1]}
+    else:
+        raise HTTPException(status_code=403, detail=res[1])
+
+
+# 获取用户角色
 @app.get("/users/me/role", response_model=dict)
 async def read_users_role(current_user: SysUser = Depends(get_current_user)):
-    role = RoleDao.get_role_by_user(current_user["id"])[0]
+    role = RoleDao.get_role_by_user(current_user.id)[0]
     if role is None:
         raise HTTPException(status_code=403, detail="Role not found")
     else:
         role_dict = {"id": role.id, "name": role.name}
         return role_dict
+
+
+# 用户角色修改
+@app.post("/users/change/role", response_model=dict)
+async def change_role(username: str = Body(required=True),
+                      telephone: str = Body(required=True),
+                      role_id: int = Body(required=True),
+                      current_user: SysUser = Depends(get_current_user)):
+    target_id = UserDao.getUserIdByName(username, telephone)
+    res = RoleDao.role_change(current_user, target_id, role_id)
+    if res[0]:
+        return {"detail": res[1]}
+    else:
+        raise HTTPException(status_code=403, detail=res[1])
+
+
+# 机房长信息
+@app.get("/manager/me")
+async def manager_me(current_user: SysUser = Depends(get_current_user)):
+    res = ManagerDao.get_manager(current_user)
+    if res[0]:
+        manager = SysManager(id=res[1].id, user_id=res[1].user_id, address=res[1].address,
+                             telephone=res[1].telephone)
+        return manager
+    else:
+        raise HTTPException(status_code=403, detail=res[1])
 
 
 @app.get("/index")
