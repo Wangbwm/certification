@@ -2,6 +2,8 @@ import math
 
 from sqlalchemy import create_engine, func, true, false
 from sqlalchemy.orm import sessionmaker
+
+from entity.SysRole import SysRole
 from entity.SysUserRole import SysUserRole
 from entity.SysUser import SysUser
 from Utils.hash import *
@@ -116,45 +118,36 @@ def user_change(user, new_telephone):
 
 
 # 分页查询用户
-def user_list(user, page):
+def user_list(page):
     total_pages = 0
-    user_list = []
+    all_user_list = []
+    user_dict_list = {}
     page_size = 5
-    flag, mes = login(user)
-    if flag:
-        try:
-            session = get_session()
-            existing_user = session.query(SysUser).filter_by(username=user.username).first()
-            user_id = existing_user.id
-            # 鉴权
-            role = session.query(SysUserRole).filter_by(user_id=user_id).first()
-            if role.role_id == 1:
-                # 分页查询用户列表
-                total_count = session.query(SysUser).count()
-                offset = (page - 1) * page_size
-                users = session.query(SysUser)
-                user_list = users.offset(offset).limit(page_size).all()
-                # 计算总页数
-                total_pages = math.ceil(total_count / page_size)
-                user_dict_list = [
-                    {
-                        "id": user.id,
-                        "user_name": user.username,
-                        "tel": user.tel,
-                        "role_id": session.query(SysUserRole).filter_by(user_id=user.id).first().role_id
-                    } for user in user_list
-                ]
-                return True, f"成功", total_pages, user_dict_list, True
-            else:
-                return False, f"用户权限不足", total_pages, user_list, True
-        except Exception as e:
-            session.rollback()
-            return False, f"错误: {e}", total_pages, user_list, False
-        finally:
-            session.close()
+    session = get_session()
+    try:
+        # 分页查询用户列表
+        total_count = session.query(SysUser).count()
+        offset = (page - 1) * page_size
+        users = session.query(SysUser)
+        all_user_list = users.offset(offset).limit(page_size).all()
+        # 计算总页数
+        total_pages = math.ceil(total_count / page_size)
+        user_dict_list = [
+            {
+                "id": user.id,
+                "username": user.username,
+                "telephone": user.telephone,
+                "role": session.query(SysRole)
+                .filter_by(id=session.query(SysUserRole).filter_by(user_id=user.id).first().role_id).first().name
+            } for user in all_user_list
+        ]
+        return True, f"成功", total_pages, user_dict_list
+    except Exception as e:
+        session.rollback()
+        return False, f"错误: {e}", total_pages, user_dict_list
+    finally:
+        session.close()
 
-    else:
-        return False, f"系统内部错误", total_pages, user_list, False
 
 
 # 删除用户

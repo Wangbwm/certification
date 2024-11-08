@@ -104,3 +104,49 @@ def user_change(current_user, address):
         return False, "服务器内部错误"
     finally:
         session.close()
+
+
+def get_manager_list(page):
+    total_pages = 0
+    all_managers_list = []
+    managers_dict_list = {}
+    page_size = 5
+    session = get_session()
+    try:
+        # 分页查询列表
+        total_count = session.query(SysManager).count()
+        offset = (page - 1) * page_size
+        managers = session.query(SysManager)
+        all_managers_list = managers.offset(offset).limit(page_size).all()
+        # 计算总页数
+        total_pages = math.ceil(total_count / page_size)
+
+        managers_dict_list = [
+            {
+                "id": manager.id,
+                "manager_name": session.query(SysUser)
+                .filter_by(id=manager.user_id).first().username,
+                "manager_telephone": session.query(SysUser)
+                .filter_by(id=manager.user_id).first().telephone,
+                "manager_address": manager.address
+            } for manager in all_managers_list
+        ]
+        return True, f"成功", total_pages, managers_dict_list
+    except Exception as e:
+        session.rollback()
+        return False, f"错误: {e}", total_pages, managers_dict_list
+    finally:
+        session.close()
+
+
+def get_user_by_id(manager_id):
+    session = get_session()
+    try:
+        user = session.query(SysUser)\
+            .filter_by(id=session.query(SysManager).filter_by(manager_id=manager_id).first().user_id).first()
+        return True, f"成功", user
+    except Exception as e:
+        session.rollback()
+        return False, f"错误: {e}", None
+    finally:
+        session.close()
