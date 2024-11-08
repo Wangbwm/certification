@@ -225,3 +225,19 @@ def getUserIdByName(username, telephone):
         return None
     finally:
         session.close()
+
+def getUserByName(username, telephone):
+    session = get_session()
+    try:
+        # 检查用户是否已存在
+        existing_user = session.query(SysUser).filter_by(username=username, telephone=telephone).first()
+        if existing_user:
+            return existing_user
+        else:
+            return None
+    except Exception as e:
+        session.rollback()
+        print(e)
+        return None
+    finally:
+        session.close()

@@ -47,3 +47,60 @@ def get_manager(user):
         return False, "服务器内部错误"
     finally:
         session.close()
+
+
+def create_manager(sys_manager):
+    session = get_session()
+    try:
+        existing_manager = session.query(SysManager).filter_by(user_id=sys_manager.user_id)
+        if existing_manager.first():
+            return False, "用户已绑定机房长"
+        session.add(sys_manager)
+        session.flush()
+        session.commit()
+        return True, f"用户{sys_manager.user_id}绑定机房长成功"
+    except Exception as e:
+        session.rollback()
+        print(e)
+        return False, "服务器内部错误"
+    finally:
+        session.close()
+
+
+def delete_manager(target_id):
+    session = get_session()
+    try:
+        existing_manager = session.query(SysManager).filter_by(user_id=target_id)
+        if existing_manager.first():
+            existing_manager.delete()
+            session.flush()
+            session.commit()
+            return True, f"用户{target_id}解绑机房长成功"
+        else:
+            return False, "用户未绑定机房长"
+    except Exception as e:
+        session.rollback()
+        print(e)
+        return False, "服务器内部错误"
+    finally:
+        session.close()
+
+
+def user_change(current_user, address):
+    session = get_session()
+    try:
+        # 检查用户是否已存在
+        existing_user = session.query(SysManager).filter_by(user_id=current_user.id).first()
+        if existing_user:
+            existing_user.address = address
+            session.flush()
+            session.commit()
+            return True, f"用户{current_user.username}修改地址成功"
+        else:
+            return False, "用户未绑定机房长"
+    except Exception as e:
+        session.rollback()
+        print(e)
+        return False, "服务器内部错误"
+    finally:
+        session.close()

@@ -185,6 +185,26 @@ async def read_users_role(current_user: SysUser = Depends(get_current_user)):
         role_dict = {"id": role.id, "name": role.name}
         return role_dict
 
+# 管理员获得用户角色
+@app.get("/users/role/get", response_model=dict)
+async def get_role(username: str = Body(required=True),
+                  telephone: str = Body(required=True),
+                  current_user: SysUser = Depends(get_current_user)):
+    role_id = RoleDao.get_role_by_user(current_user.id)
+    if role_id[0] != 1:
+        raise HTTPException(status_code=403, detail="No permission")
+    target_user = SysUser(username=username, telephone=telephone)
+    role = RoleDao.get_role_by_user(target_user.id)[0]
+    if role is None:
+        raise HTTPException(status_code=403, detail="Role not found")
+    else:
+        role_dict = {
+            "username": target_user.username,
+            "telephone": target_user.telephone,
+            "id": role.id,
+            "name": role.name
+        }
+        return role_dict
 
 # 用户角色修改
 @app.post("/users/change/role", response_model=dict)
@@ -205,9 +225,83 @@ async def change_role(username: str = Body(required=True),
 async def manager_me(current_user: SysUser = Depends(get_current_user)):
     res = ManagerDao.get_manager(current_user)
     if res[0]:
-        manager = SysManager(id=res[1].id, user_id=res[1].user_id, address=res[1].address,
-                             telephone=res[1].telephone)
-        return manager
+        return res[1]
+    else:
+        raise HTTPException(status_code=403, detail=res[1])
+
+# 管理员查询指定机房长信息
+@app.get("/manager/get", response_model=dict)
+async def get_manager(username: str = Body(required=True),
+                      telephone: str = Body(required=True),
+                      current_user: SysUser = Depends(get_current_user)):
+    role_id = RoleDao.get_role_by_user(current_user.id)
+    if role_id[0].id != 1:
+        raise HTTPException(status_code=403, detail="No permission")
+    target_user = UserDao.getUserByName(username, telephone)
+    res = ManagerDao.get_manager(target_user)
+    if res[0]:
+        return res[1]
+    else:
+        raise HTTPException(status_code=403, detail=res[1])
+
+# 新增机房长
+@app.post("/manager/create", response_model=dict)
+async def create_manager(username: str = Body(required=True),
+                         telephone: str = Body(required=True),
+                         address: str = Body(required=True),
+                         current_user: SysUser = Depends(get_current_user)):
+    role_id = RoleDao.get_role_by_user(current_user.id)
+    if role_id[0].id != 1:
+        raise HTTPException(status_code=403, detail="No permission")
+    sys_user = UserDao.getUserIdByName(username, telephone)
+    sys_manager = SysManager(user_id=sys_user.id, address=address, telephone=telephone)
+    res = ManagerDao.create_manager(sys_manager)
+    if res[0]:
+        return {"detail": res[1]}
+    else:
+        raise HTTPException(status_code=403, detail=res[1])
+
+
+# 删除机房长
+@app.delete("/manager/delete", response_model=dict)
+async def delete_manager(username: str = Body(required=True),
+                         telephone: str = Body(required=True),
+                         current_user: SysUser = Depends(get_current_user)):
+    role_id = RoleDao.get_role_by_user(current_user.id)
+    if role_id[0].id != 1:
+        raise HTTPException(status_code=403, detail="No permission")
+    target_id = UserDao.getUserIdByName(username, telephone)
+    res = ManagerDao.delete_manager(target_id)
+    if res[0]:
+        return {"detail": res[1]}
+    else:
+        raise HTTPException(status_code=403, detail=res[1])
+
+
+# 修改机房长信息
+@app.post("/manager/change", response_model=dict)
+async def change_manager(address: str = Body(required=True),
+                         current_user: SysUser = Depends(get_current_user)):
+    res = ManagerDao.user_change(current_user, address)
+    if res[0]:
+        return {"detail": res[1]}
+    else:
+        raise HTTPException(status_code=403, detail=res[1])
+
+
+# 管理员修改机房长信息
+@app.post("/manager/admin/change/", response_model=dict)
+async def admin_change_manager(username: str = Body(required=True),
+                               telephone: str = Body(required=True),
+                               address: str = Body(required=True),
+                               current_user: SysUser = Depends(get_current_user)):
+    role_id = RoleDao.get_role_by_user(current_user.id)
+    if role_id[0].id != 1:
+        raise HTTPException(status_code=403, detail="No permission")
+    target_user = UserDao.getUserIdByName(username, telephone)
+    res = ManagerDao.user_change(target_user, address)
+    if res[0]:
+        return {"detail": res[1]}
     else:
         raise HTTPException(status_code=403, detail=res[1])
 
