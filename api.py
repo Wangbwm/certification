@@ -386,10 +386,11 @@ async def create_room(name: str = Body(required=True),
     else:
         raise HTTPException(status_code=403, detail=res[1])
 
+
 # 管理员删除机房
 @app.delete("/room/delete", response_model=dict)
 async def delete_room(name: str = Body(required=True),
-                     current_user: SysUser = Depends(get_current_user)):
+                      current_user: SysUser = Depends(get_current_user)):
     role_id = RoleDao.get_role_by_user(current_user.id)
     if role_id[0].id != 1:
         raise HTTPException(status_code=403, detail="No permission")
@@ -399,12 +400,13 @@ async def delete_room(name: str = Body(required=True),
     else:
         raise HTTPException(status_code=403, detail=res[1])
 
+
 # 管理员和机房长修改机房信息
 @app.post("/room/change", response_model=dict)
 async def change_room(name: str = Body(required=True),
-                     address: str = Body(required=True),
-                     manager_id: int = Body(required=True),
-                     current_user: SysUser = Depends(get_current_user)):
+                      address: str = Body(required=True),
+                      manager_id: int = Body(required=True),
+                      current_user: SysUser = Depends(get_current_user)):
     role_id = RoleDao.get_role_by_user(current_user.id)
     user = ManagerDao.get_user_by_id(manager_id)
     if role_id[0].id != 1 and user.id != current_user.id:
@@ -416,27 +418,30 @@ async def change_room(name: str = Body(required=True),
     else:
         raise HTTPException(status_code=403, detail=res[1])
 
+
 # 发起机房开门请求
 @app.post("/approve/open", response_model=dict)
-async def approve_open(id: int = Body(required=True),
+async def approve_open(room_id: int = Body(required=True),
+                       notes: Optional[str] = Body(None),
                        current_user: SysUser = Depends(get_current_user)):
     role_id = RoleDao.get_role_by_user(current_user.id)
     if role_id[0].id != 3:
-        res = ApproveDao.direct_open(current_user, id)
+        res = ApproveDao.direct_open(current_user, room_id, notes)
         if res[0]:
             return {"detail": res[1]}
         else:
             raise HTTPException(status_code=403, detail=res[1])
-    res = ApproveDao.approve_open(current_user, id)
+    res = ApproveDao.approve_open(current_user, room_id, notes)
     if res[0]:
         return {"detail": res[1]}
     else:
         raise HTTPException(status_code=403, detail=res[1])
 
+
 # 获得审批工单
 @app.get("/approve/list", response_model=dict)
-async def get_approve_list(page: int = 1,
-                           pro_status: bool = Body(required=True),
+async def get_approve_list(pro_status: bool,
+                           page: int = 1,
                            current_user: SysUser = Depends(get_current_user)):
     res = ApproveDao.get_approve_list(page, pro_status, current_user)
     if res[0]:
@@ -446,6 +451,31 @@ async def get_approve_list(page: int = 1,
         }
     else:
         raise HTTPException(status_code=403, detail=res[1])
+
+# 审批开门请求
+@app.post("/approve/approve", response_model=dict)
+async def approve_approve(approve_id: int = Body(required=True),
+                          approve_status: bool = Body(required=True),
+                          current_user: SysUser = Depends(get_current_user)):
+    res = ApproveDao.approve_approve(approve_id, approve_status, current_user)
+    if res[0]:
+        return {"detail": res[1]}
+    else:
+        raise HTTPException(status_code=403, detail=res[1])
+
+# 管理员删除审批工单
+@app.delete("/approve/delete", response_model=dict)
+async def delete_approve(approve_id: int = Body(required=True),
+                         current_user: SysUser = Depends(get_current_user)):
+    role_id = RoleDao.get_role_by_user(current_user.id).id
+    if role_id != 1:
+        raise HTTPException(status_code=403, detail="No permission")
+    res = ApproveDao.delete_approve(approve_id)
+    if res[0]:
+        return {"detail": res[1]}
+    else:
+        raise HTTPException(status_code=403, detail=res[1])
+
 @app.get("/index")
 async def index(current_user: SysUser = Depends(get_current_user)):
     return "hello world"

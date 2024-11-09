@@ -6,6 +6,7 @@ from sqlalchemy.orm import sessionmaker
 
 from entity.SysApprove import SysApprove
 from entity.SysManager import SysManager
+from entity.SysOpen import SysOpen
 from entity.SysRole import SysRole
 from entity.SysRoom import SysRoom
 from entity.SysUser import SysUser
@@ -29,14 +30,16 @@ def get_session():
     return Session()
 
 
-def direct_open(current_user, room_id):
+def direct_open(current_user, room_id, notes):
     session = get_session()
     try:
         room = session.query(SysRoom).filter_by(id=room_id).first()
         if not room:
             return False, f"申请机房不存在"
-        approve = SysApprove(room_id=room_id, manager_id=room.manager_id, user_id=current_user.id, pro_status=true, app_status=true)
+        approve = SysApprove(room_id=room_id, manager_id=room.manager_id, user_id=current_user.id, pro_status=True, app_status=True, notes=notes)
         session.add(approve)
+        room_open = SysOpen(room_id=room_id, open_status=False, pro_status=False, room_name=room.name)
+        session.add(room_open)
         session.flush()
         session.commit()
         return True, f"申请成功"
@@ -47,14 +50,14 @@ def direct_open(current_user, room_id):
         session.close()
 
 
-def approve_open(current_user, room_id):
+def approve_open(current_user, room_id, notes):
     session = get_session()
     try:
         room = session.query(SysRoom).filter_by(id=room_id).first()
         if not room:
             return False, f"申请机房不存在"
-        approve = SysApprove(room_id=room_id, manager_id=room.manager_id, user_id=current_user.id, pro_status=false,
-                             app_status=false)
+        approve = SysApprove(room_id=room_id, manager_id=room.manager_id, user_id=current_user.id, pro_status=False,
+                             app_status=False, notes=notes)
         session.add(approve)
         session.flush()
         session.commit()
@@ -80,10 +83,10 @@ def get_approve_list(page, status, current_user):
 
         if role_id == 1:
             total_count = session.query(SysApprove).filter_by(pro_status=status).count()
-            apps = session.query(SysApprove)
+            apps = session.query(SysApprove, pro_status=status)
         else:
             total_count = session.query(SysApprove).filter_by(manager_id=manager_id, pro_status=status).count()
-            apps = session.query(SysApprove).filter_by(manager_id=manager_id)
+            apps = session.query(SysApprove).filter_by(manager_id=manager_id, pro_status=status)
         offset = (page - 1) * page_size
         all_apps_list = apps.offset(offset).limit(page_size).all()
         # 计算总页数
@@ -95,9 +98,8 @@ def get_approve_list(page, status, current_user):
                 "room_name": session.query(SysRoom).filter_by(id=app.room_id).first().name,
                 "manager_id": app.manager_id,
                 "manager_name": session.query(SysUser)
-                .filter_by(id=session.query(SysManager).filter_by(id=app.manager_id).first().user_id),
-                "manager_telephone": session.query(SysUser)
-                .filter_by(id=session.query(SysManager).filter_by(id=app.manager_id).first().telephone),
+                .filter_by(id=session.query(SysManager).filter_by(id=app.manager_id).first().user_id).first().username,
+                "manager_telephone": session.query(SysManager).filter_by(id=app.manager_id).first().telephone,
                 "user_id": app.user_id,
                 "user_name": session.query(SysUser).filter_by(id=app.user_id).first().username,
                 "user_telephone": session.query(SysUser).filter_by(id=app.user_id).first().telephone,
@@ -110,5 +112,47 @@ def get_approve_list(page, status, current_user):
     except Exception as e:
         session.rollback()
         return False, f"错误: {e}", total_pages, apps_dict_list
+    finally:
+        session.close()
+
+
+def approve_approve(approve_id, approve_status, current_user):
+    session = get_session()
+    try:
+        approve = session.query(SysApprove).filter_by(id=approve_id).first()
+        if not approve:
+            return False, f"审批工单不存在"
+        role_id = session.query(SysUserRole).filter_by(user_id=current_user.id).first().role_id
+        user_id = session.query(SysManager).filter_by(id=approve.manager_id).first().user_id
+        if user_id != current_user.id and role_id != 1:
+            return False, f"你没有权限审批该申请"
+        approve.app_status = approve_status
+        approve.pro_status = True
+        room = session.query(SysRoom).filter_by(id=approve.room_id).first()
+        room_open = SysOpen(room_id=room.id, open_status=False, pro_status=False, room_name=room.name)
+        session.add(room_open)
+        session.flush()
+        session.commit()
+        return True, f"审批成功"
+    except Exception as e:
+        session.rollback()
+        return False, f"审批失败，原因：{e}"
+    finally:
+        session.close()
+
+
+def delete_approve(approve_id):
+    session = get_session()
+    try:
+        approve = session.query(SysApprove).filter_by(id=approve_id).first()
+        if not approve:
+            return False, f"审批工单不存在"
+        session.delete(approve)
+        session.flush()
+        session.commit()
+        return True, f"删除成功"
+    except Exception as e:
+        session.rollback()
+        return False, f"删除失败，原因：{e}"
     finally:
         session.close()
